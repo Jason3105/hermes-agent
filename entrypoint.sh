@@ -8,8 +8,11 @@
 #   3. Run a background loop that uploads state.db every $BACKUP_INTERVAL_MINS
 #   4. Trap SIGTERM/SIGINT → final upload → clean shutdown
 # =============================================================================
-
+# Exit on error
 set -euo pipefail
+
+# Force Python stdout/stderr to be unbuffered so logs are instantly visible on Render
+export PYTHONUNBUFFERED=1
 
 # ---------------------------------------------------------------------------
 # Required environment variables
@@ -194,6 +197,9 @@ log "--- Restoring state from Supabase Storage ---"
 download_from_supabase "state.db"    "${STATE_DB_PATH}"    || true
 download_from_supabase "config.yaml" "${CONFIG_FILE_PATH}" || true
 download_from_supabase ".env"        "${ENV_FILE_PATH}"    || true
+
+# Ensure files are fully readable and writable by whatever user Hermes drops to
+chmod -R 777 "${HERMES_DATA_DIR}" || true
 
 # ===========================================================================
 # STEP 2 — Start Hermes Gateway in the background
