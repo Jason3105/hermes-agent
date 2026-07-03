@@ -1,0 +1,72 @@
+# Hermes Agent — Docker Compose (Local Testing Only)
+# =====================================================
+# Use this file to test the full backup/restore loop locally
+# BEFORE pushing your image to a registry and deploying to Render.
+#
+# Usage:
+#   docker compose up --build
+#   docker compose down
+#
+# On first run the entrypoint will print a 404 warning (no backup in Supabase
+# yet). That is expected. After the gateway starts, state.db is created and
+# backed up every BACKUP_INTERVAL_MINS minutes.
+
+services:
+  hermes:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hermes-custom:local
+
+    # ------------------------------------------------------------------
+    # Secrets — copy .env.example to .env.local and fill in real values.
+    # NEVER commit a filled-in .env file.
+    # ------------------------------------------------------------------
+    env_file:
+      - .env.local          # local overrides (gitignored)
+
+    environment:
+      # Supabase
+      SUPABASE_URL: "${SUPABASE_URL}"
+      SUPABASE_SERVICE_KEY: "${SUPABASE_SERVICE_KEY}"
+      SUPABASE_BUCKET: "${SUPABASE_BUCKET:-hermes-state}"
+
+      # Hermes gateway
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: "0.0.0.0"
+      API_SERVER_PORT: "8642"
+      API_SERVER_KEY: "${API_SERVER_KEY}"
+
+      # OpenRouter — only the API key is needed here.
+      # Model selection is handled inside the agent (saved to config.yaml).
+      # Browse models at https://openrouter.ai/models
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
+
+      # Messenger platform tokens (optional — only if configured)
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+      DISCORD_BOT_TOKEN: "${DISCORD_BOT_TOKEN:-}"
+
+      # Speed up backup cycle to 1 min for local testing
+      BACKUP_INTERVAL_MINS: "1"
+
+    ports:
+      - "8642:8642"      # API / health endpoint
+      - "9119:9119"      # Hermes dashboard (optional)
+
+    # Mount a local directory so you can inspect state.db between restarts
+    volumes:
+      - hermes_data:/opt/data
+
+    restart: unless-stopped
+
+    # Healthcheck mirrors what Render and UptimeRobot will verify
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8642/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  hermes_data:
+    driver: local
