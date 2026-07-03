@@ -201,10 +201,31 @@ download_from_supabase ".env"        "${ENV_FILE_PATH}"    || true
 # Ensure files are fully readable and writable by whatever user Hermes drops to
 chmod -R 777 "${HERMES_DATA_DIR}" || true
 
+# If config.yaml is missing (first run), generate a default to prevent Hermes
+# from defaulting to OpenAI and crashing due to a missing OpenAI key.
+if [[ ! -f "${CONFIG_FILE_PATH}" ]]; then
+  log "No config.yaml found — generating default configuration for OpenRouter."
+  cat <<'EOF' > "${CONFIG_FILE_PATH}"
+model:
+  provider: "openrouter"
+  default: "openai/gpt-4o"
+EOF
+  chmod 777 "${CONFIG_FILE_PATH}"
+fi
+
 # ===========================================================================
 # STEP 2 — Start Hermes Gateway in the background
 # ===========================================================================
 log "--- Starting Hermes gateway ---"
+
+# Log which key env vars are present — values are NEVER printed, only SET/MISSING
+_check_env() { local name="$1" val="$2"; if [[ -n "${val}" ]]; then log "Env check — ${name}: SET"; else log "Env check — ${name}: MISSING"; fi; }
+_check_env "OPENROUTER_API_KEY " "${OPENROUTER_API_KEY:-}"
+_check_env "API_SERVER_KEY     " "${API_SERVER_KEY:-}"
+_check_env "TELEGRAM_BOT_TOKEN " "${TELEGRAM_BOT_TOKEN:-}"
+log "Env check — API_SERVER_ENABLED  : ${API_SERVER_ENABLED:-not set}"
+log "Env check — API_SERVER_HOST     : ${API_SERVER_HOST:-not set}"
+log "Env check — API_SERVER_PORT     : ${API_SERVER_PORT:-not set}"
 
 # Source the .env file if it was downloaded (gives Hermes its platform tokens)
 if [[ -f "${ENV_FILE_PATH}" ]]; then
@@ -213,16 +234,27 @@ if [[ -f "${ENV_FILE_PATH}" ]]; then
   set -a; source "${ENV_FILE_PATH}"; set +a
 fi
 
-# Start the gateway in the foreground but backgrounded via & so we can
-# manage the backup loop alongside it. Hermes is configured via env vars
-# (API_SERVER_HOST, API_SERVER_PORT, API_SERVER_KEY, etc.) already set
-# in the Render environment.
-hermes gateway run &
+# Start the gateway — explicitly forward stdout AND stderr to PID 1's file
+# descriptors so Render captures every log line including crash tracebacks.
+hermes gateway run > /proc/1/fd/1 2>&1 &
 HERMES_PID=$!
 log "Hermes gateway started (PID ${HERMES_PID})"
 
-# Wait briefly for the gateway to initialise before starting the backup loop
-sleep 10
+# Early crash detection: wait 5 s then check if Hermes is still running.
+# If it already died, capture its exit code and abort with a clear message.
+sleep 5
+if ! kill -0 "${HERMES_PID}" 2>/dev/null; then
+  wait "${HERMES_PID}" 2>/dev/null; EXIT_CODE=$?
+  err "Hermes gateway crashed within 5 seconds (exit code ${EXIT_CODE})."
+  err "Check the lines above for the Hermes error traceback."
+  err "Common causes: OPENROUTER_API_KEY not set, or hermes setup not completed."
+  backup_state
+  exit 1
+fi
+log "Hermes gateway is healthy after 5s — continuing."
+
+# Additional 5-second buffer before the backup loop starts
+sleep 5
 
 # ===========================================================================
 # STEP 3 — Backup loop
