@@ -52,13 +52,13 @@ download_from_supabase() {
   local remote_path="$1"
   local local_path="$2"
 
-  log "Attempting download: ${STORAGE_BASE}/${remote_path} → ${local_path}"
+  log "Attempting download: ${SUPABASE_URL}/storage/v1/object/authenticated/${SUPABASE_BUCKET}/${remote_path} → ${local_path}"
 
   HTTP_STATUS=$(curl -sSL \
     "${AUTH_HEADERS[@]}" \
     -w "%{http_code}" \
     -o "${local_path}.tmp" \
-    "${STORAGE_BASE}/${remote_path}" 2>/dev/null || true)
+    "${SUPABASE_URL}/storage/v1/object/authenticated/${SUPABASE_BUCKET}/${remote_path}" 2>/dev/null || true)
 
   case "${HTTP_STATUS}" in
     200)
@@ -68,8 +68,19 @@ download_from_supabase() {
       ;;
     404)
       rm -f "${local_path}.tmp"
-      warn "Remote file not found (404) — first run or empty bucket. Skipping."
+      warn "Remote file ${remote_path} not found (404) — skipping."
       return 1
+      ;;
+    400)
+      if grep -qE '"error":"Key not found"|"message":"The resource was not found"|"Key not found"' "${local_path}.tmp" 2>/dev/null; then
+        rm -f "${local_path}.tmp"
+        warn "Remote file ${remote_path} not found (400: Key not found) — skipping."
+        return 1
+      else
+        rm -f "${local_path}.tmp"
+        err "Download failed with HTTP status 400 for ${remote_path}"
+        return 2
+      fi
       ;;
     *)
       rm -f "${local_path}.tmp"

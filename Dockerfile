@@ -7,7 +7,7 @@
 #   - A custom entrypoint that restores/backs up state around the gateway
 # =============================================================================
 
-FROM ghcr.io/nousresearch/hermes-agent:latest
+FROM nousresearch/hermes-agent:latest
 
 # Install curl (needed for Supabase Storage REST calls).
 # The base image is Debian/Ubuntu-based; update the apt cache and clean up
