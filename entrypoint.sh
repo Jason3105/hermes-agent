@@ -204,14 +204,38 @@ chmod -R 777 "${HERMES_DATA_DIR}" || true
 # If config.yaml is missing (first run), generate a default to prevent Hermes
 # from defaulting to OpenAI and crashing due to a missing OpenAI key.
 if [[ ! -f "${CONFIG_FILE_PATH}" ]]; then
-  log "No config.yaml found — generating default configuration for OpenRouter."
+  log "No config.yaml found — generating default configuration."
   cat <<'EOF' > "${CONFIG_FILE_PATH}"
 model:
   provider: "openrouter"
   default: "openai/gpt-4o"
 EOF
-  chmod 777 "${CONFIG_FILE_PATH}"
 fi
+
+# Ensure Groq is registered under custom_providers in config.yaml
+log "Ensuring Groq is registered in config.yaml..."
+python3 -c '
+import yaml, sys
+path = sys.argv[1]
+try:
+    with open(path, "r") as f:
+        cfg = yaml.safe_load(f) or {}
+except Exception:
+    cfg = {}
+if "custom_providers" not in cfg:
+    cfg["custom_providers"] = []
+if not any(p.get("name") == "groq" for p in cfg["custom_providers"]):
+    cfg["custom_providers"].append({
+        "name": "groq",
+        "base_url": "https://api.groq.com/openai/v1",
+        "key_env": "GROQ_API_KEY"
+    })
+with open(path, "w") as f:
+    yaml.safe_dump(cfg, f)
+' "${CONFIG_FILE_PATH}" || true
+
+# Ensure correct permissions
+chmod 777 "${CONFIG_FILE_PATH}" || true
 
 # ===========================================================================
 # STEP 2 — Start Hermes Gateway in the background
