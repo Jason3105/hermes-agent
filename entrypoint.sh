@@ -212,8 +212,8 @@ model:
 EOF
 fi
 
-# Ensure Groq is registered under custom_providers and max_tokens is safe in config.yaml
-log "Ensuring Groq is registered and max_tokens is safe in config.yaml..."
+# Remove any legacy custom groq entry from config.yaml — Hermes has a native
+# built-in Groq provider that activates automatically when GROQ_API_KEY is set.
 python3 -c '
 import yaml, sys
 path = sys.argv[1]
@@ -222,23 +222,24 @@ try:
         cfg = yaml.safe_load(f) or {}
 except Exception:
     cfg = {}
-if "custom_providers" not in cfg:
-    cfg["custom_providers"] = []
-if not any(p.get("name") == "groq" for p in cfg["custom_providers"]):
-    cfg["custom_providers"].append({
-        "name": "groq",
-        "base_url": "https://api.groq.com/openai/v1",
-        "key_env": "GROQ_API_KEY"
-    })
-if "model" not in cfg:
-    cfg["model"] = {}
-# Force a safe output token limit (4096) to prevent Groq API errors
-cfg["model"]["max_tokens"] = 4096
-with open(path, "w") as f:
-    yaml.safe_dump(cfg, f)
+changed = False
+if "custom_providers" in cfg:
+    before = len(cfg["custom_providers"])
+    cfg["custom_providers"] = [p for p in cfg["custom_providers"] if p.get("name") != "groq"]
+    if len(cfg["custom_providers"]) < before:
+        changed = True
+    if not cfg["custom_providers"]:
+        cfg.pop("custom_providers")
+# Remove stale max_tokens override so Hermes uses the model default
+if "model" in cfg and "max_tokens" in cfg["model"]:
+    cfg["model"].pop("max_tokens")
+    changed = True
+if changed:
+    with open(path, "w") as f:
+        yaml.safe_dump(cfg, f)
 ' "${CONFIG_FILE_PATH}" || true
 
-# Ensure correct permissions
+# Ensure correct permissions on config
 chmod 777 "${CONFIG_FILE_PATH}" || true
 
 # ===========================================================================
