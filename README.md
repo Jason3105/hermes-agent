@@ -194,6 +194,7 @@ Add the following in the **Environment** tab:
 | `BACKUP_INTERVAL_MINS` | `5` | Minutes between state.db uploads |
 | `OPENROUTER_API_KEY` | `sk-or-...` | Get yours at [openrouter.ai/keys](https://openrouter.ai/keys) |
 | `GROQ_API_KEY` | *(optional)* | For Groq's high-speed free tier — [console.groq.com/keys](https://console.groq.com/keys) |
+| `GEMINI_API_KEY` | *(optional)* | Google Gemini API key (generous 1M TPM free tier) — [aistudio.google.com](https://aistudio.google.com) |
 | `TELEGRAM_BOT_TOKEN` | *(optional)* | Only if using Telegram |
 | `DISCORD_BOT_TOKEN` | *(optional)* | Only if using Discord |
 
@@ -262,6 +263,7 @@ UptimeRobot's free plan pings every 5 minutes — enough to keep the service war
 | `HERMES_DATA_DIR` | No | `/opt/data` | Path where Hermes stores its state |
 | `OPENROUTER_API_KEY` | Yes | — | OpenRouter API key — [openrouter.ai/keys](https://openrouter.ai/keys) |
 | `GROQ_API_KEY` | No | — | Groq API key (optional) — [console.groq.com/keys](https://console.groq.com/keys) |
+| `GEMINI_API_KEY` | No | — | Google Gemini API key (optional, alias: `GOOGLE_API_KEY`) — [aistudio.google.com](https://aistudio.google.com) |
 | `TELEGRAM_BOT_TOKEN` | No | — | Required only if using Telegram |
 | `DISCORD_BOT_TOKEN` | No | — | Required only if using Discord |
 

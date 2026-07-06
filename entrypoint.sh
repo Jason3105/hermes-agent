@@ -251,6 +251,7 @@ log "--- Starting Hermes gateway ---"
 _check_env() { local name="$1" val="$2"; if [[ -n "${val}" ]]; then log "Env check — ${name}: SET"; else log "Env check — ${name}: MISSING"; fi; }
 _check_env "OPENROUTER_API_KEY " "${OPENROUTER_API_KEY:-}"
 _check_env "GROQ_API_KEY       " "${GROQ_API_KEY:-}"
+_check_env "GEMINI_API_KEY     " "${GEMINI_API_KEY:-${GOOGLE_API_KEY:-}}"
 _check_env "API_SERVER_KEY     " "${API_SERVER_KEY:-}"
 _check_env "TELEGRAM_BOT_TOKEN " "${TELEGRAM_BOT_TOKEN:-}"
 log "Env check — API_SERVER_ENABLED  : ${API_SERVER_ENABLED:-not set}"
