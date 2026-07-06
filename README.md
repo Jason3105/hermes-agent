@@ -193,6 +193,7 @@ Add the following in the **Environment** tab:
 | `API_SERVER_KEY` | `<random 32+ char string>` | Generate: `openssl rand -hex 32` |
 | `BACKUP_INTERVAL_MINS` | `5` | Minutes between state.db uploads |
 | `OPENROUTER_API_KEY` | `sk-or-...` | Get yours at [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `GROQ_API_KEY` | *(optional)* | For Groq's high-speed free tier — [console.groq.com/keys](https://console.groq.com/keys) |
 | `TELEGRAM_BOT_TOKEN` | *(optional)* | Only if using Telegram |
 | `DISCORD_BOT_TOKEN` | *(optional)* | Only if using Discord |
 
@@ -260,6 +261,7 @@ UptimeRobot's free plan pings every 5 minutes — enough to keep the service war
 | `BACKUP_INTERVAL_MINS` | No | `5` | Minutes between state.db uploads |
 | `HERMES_DATA_DIR` | No | `/opt/data` | Path where Hermes stores its state |
 | `OPENROUTER_API_KEY` | Yes | — | OpenRouter API key — [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `GROQ_API_KEY` | No | — | Groq API key (optional) — [console.groq.com/keys](https://console.groq.com/keys) |
 | `TELEGRAM_BOT_TOKEN` | No | — | Required only if using Telegram |
 | `DISCORD_BOT_TOKEN` | No | — | Required only if using Discord |
 
