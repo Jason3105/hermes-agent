@@ -212,8 +212,8 @@ model:
 EOF
 fi
 
-# Ensure Groq is registered under custom_providers in config.yaml
-log "Ensuring Groq is registered in config.yaml..."
+# Ensure Groq is registered under custom_providers and max_tokens is safe in config.yaml
+log "Ensuring Groq is registered and max_tokens is safe in config.yaml..."
 python3 -c '
 import yaml, sys
 path = sys.argv[1]
@@ -230,6 +230,10 @@ if not any(p.get("name") == "groq" for p in cfg["custom_providers"]):
         "base_url": "https://api.groq.com/openai/v1",
         "key_env": "GROQ_API_KEY"
     })
+if "model" not in cfg:
+    cfg["model"] = {}
+# Force a safe output token limit (4096) to prevent Groq API errors
+cfg["model"]["max_tokens"] = 4096
 with open(path, "w") as f:
     yaml.safe_dump(cfg, f)
 ' "${CONFIG_FILE_PATH}" || true
