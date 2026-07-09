@@ -279,23 +279,25 @@ chmod 777 "${CONFIG_FILE_PATH}" || true
 # STEP 2 — Configure and Start Gateway, Dashboard, and Caddy Proxy
 # ===========================================================================
 
-# Configure Dashboard Basic Auth environment variables
-export HERMES_DASHBOARD_BASIC_AUTH_USERNAME="${HERMES_DASHBOARD_BASIC_AUTH_USERNAME:-admin}"
-if [[ -z "${HERMES_DASHBOARD_BASIC_AUTH_SECRET:-}" ]]; then
-  export HERMES_DASHBOARD_BASIC_AUTH_SECRET=$(openssl rand -hex 16)
-fi
+if [[ "${DISABLE_DASHBOARD:-}" != "true" ]]; then
+  # Configure Dashboard Basic Auth environment variables
+  export HERMES_DASHBOARD_BASIC_AUTH_USERNAME="${HERMES_DASHBOARD_BASIC_AUTH_USERNAME:-admin}"
+  if [[ -z "${HERMES_DASHBOARD_BASIC_AUTH_SECRET:-}" ]]; then
+    export HERMES_DASHBOARD_BASIC_AUTH_SECRET=$(openssl rand -hex 16)
+  fi
 
-# Generate the bcrypt hash of the password for Caddy basic_auth
-if [[ -z "${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD:-}" ]]; then
-  export HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=$(openssl rand -hex 8)
-  log "------------------------------------------------------------"
-  log " DASHBOARD PASSWORD GENERATED: ${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}"
-  log " Username: ${HERMES_DASHBOARD_BASIC_AUTH_USERNAME}"
-  log " Please save these credentials to access your dashboard!"
-  log "------------------------------------------------------------"
+  # Generate the bcrypt hash of the password for Caddy basic_auth
+  if [[ -z "${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD:-}" ]]; then
+    export HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=$(openssl rand -hex 8)
+    log "------------------------------------------------------------"
+    log " DASHBOARD PASSWORD GENERATED: ${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}"
+    log " Username: ${HERMES_DASHBOARD_BASIC_AUTH_USERNAME}"
+    log " Please save these credentials to access your dashboard!"
+    log "------------------------------------------------------------"
+  fi
+  # Generate bcrypt hash (Caddy requires hashed passwords for basic_auth)
+  export HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH=$(caddy hash-password --plaintext "${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}")
 fi
-# Generate bcrypt hash (Caddy requires hashed passwords for basic_auth)
-export HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH=$(caddy hash-password --plaintext "${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}")
 
 # Force Gateway API to bind to localhost internally so it is protected by Caddy
 export API_SERVER_HOST="127.0.0.1"
@@ -329,14 +331,36 @@ HERMES_PID=$!
 log "Hermes gateway started (PID ${HERMES_PID})"
 
 # Start the web dashboard (binds internally to localhost:9119)
-log "--- Starting Hermes Web Dashboard ---"
-hermes dashboard --port 9119 --host 127.0.0.1 --no-open > /proc/1/fd/1 2>&1 &
-DASHBOARD_PID=$!
-log "Hermes Web Dashboard started (PID ${DASHBOARD_PID})"
+DASHBOARD_PID=""
+if [[ "${DISABLE_DASHBOARD:-}" != "true" ]]; then
+  log "--- Starting Hermes Web Dashboard ---"
+  hermes dashboard --port 9119 --host 127.0.0.1 --no-open > /proc/1/fd/1 2>&1 &
+  DASHBOARD_PID=$!
+  log "Hermes Web Dashboard started (PID ${DASHBOARD_PID})"
+else
+  log "Hermes Web Dashboard is disabled via DISABLE_DASHBOARD=true"
+fi
 
 # Start Caddy reverse proxy to expose both services under a single port
 PUBLIC_PORT="${PORT:-8642}"
 log "--- Starting Caddy Reverse Proxy on port ${PUBLIC_PORT} ---"
+if [[ "${DISABLE_DASHBOARD:-}" == "true" ]]; then
+cat <<EOF > /tmp/Caddyfile
+{
+    admin off
+}
+
+:${PUBLIC_PORT} {
+    # Static health check response to keep Render happy even if Python is busy
+    respond /health "OK" 200
+
+    # Route all traffic directly to the API Gateway
+    reverse_proxy /* 127.0.0.1:8642 {
+        header_up Host {upstream_hostport}
+    }
+}
+EOF
+else
 cat <<EOF > /tmp/Caddyfile
 {
     admin off
@@ -367,12 +391,13 @@ cat <<EOF > /tmp/Caddyfile
     }
 }
 EOF
+fi
 
 caddy run --config /tmp/Caddyfile > /proc/1/fd/1 2>&1 &
 CADDY_PID=$!
 log "Caddy proxy started (PID ${CADDY_PID})"
 
-# Early crash detection: wait 5 s then check if all three processes are running
+# Early crash detection: wait 5 s then check if all running processes are healthy
 sleep 5
 if ! kill -0 "${HERMES_PID}" 2>/dev/null; then
   wait "${HERMES_PID}" 2>/dev/null; EXIT_CODE=$?
@@ -380,11 +405,13 @@ if ! kill -0 "${HERMES_PID}" 2>/dev/null; then
   backup_state
   exit 1
 fi
-if ! kill -0 "${DASHBOARD_PID}" 2>/dev/null; then
-  wait "${DASHBOARD_PID}" 2>/dev/null; EXIT_CODE=$?
-  err "Hermes Web Dashboard crashed within 5 seconds (exit code ${EXIT_CODE})."
-  backup_state
-  exit 1
+if [[ "${DISABLE_DASHBOARD:-}" != "true" ]]; then
+  if ! kill -0 "${DASHBOARD_PID}" 2>/dev/null; then
+    wait "${DASHBOARD_PID}" 2>/dev/null; EXIT_CODE=$?
+    err "Hermes Web Dashboard crashed within 5 seconds (exit code ${EXIT_CODE})."
+    backup_state
+    exit 1
+  fi
 fi
 if ! kill -0 "${CADDY_PID}" 2>/dev/null; then
   wait "${CADDY_PID}" 2>/dev/null; EXIT_CODE=$?
@@ -392,7 +419,7 @@ if ! kill -0 "${CADDY_PID}" 2>/dev/null; then
   backup_state
   exit 1
 fi
-log "All services (Gateway, Dashboard, Caddy) are healthy — continuing."
+log "All services are healthy — continuing."
 
 # Additional buffer before the backup loop starts
 sleep 5
@@ -411,10 +438,12 @@ while true; do
   fi
 
   # Check if Hermes Web Dashboard is still alive
-  if ! kill -0 "${DASHBOARD_PID}" 2>/dev/null; then
-    err "Hermes Web Dashboard process (PID ${DASHBOARD_PID}) has exited unexpectedly!"
-    backup_state
-    exit 1
+  if [[ "${DISABLE_DASHBOARD:-}" != "true" ]]; then
+    if ! kill -0 "${DASHBOARD_PID}" 2>/dev/null; then
+      err "Hermes Web Dashboard process (PID ${DASHBOARD_PID}) has exited unexpectedly!"
+      backup_state
+      exit 1
+    fi
   fi
 
   # Check if Caddy Proxy is still alive
@@ -427,8 +456,14 @@ while true; do
   sleep "${BACKUP_INTERVAL_SECS}" &
   SLEEP_PID=$!
 
+  # Build list of PIDs to wait for
+  WAIT_PIDS=("${SLEEP_PID}" "${HERMES_PID}" "${CADDY_PID}")
+  if [[ "${DISABLE_DASHBOARD:-}" != "true" ]]; then
+    WAIT_PIDS+=("${DASHBOARD_PID}")
+  fi
+
   # wait -n returns when any background job completes (bash 4.3+)
-  wait -n "${SLEEP_PID}" "${HERMES_PID}" "${DASHBOARD_PID}" "${CADDY_PID}" 2>/dev/null || true
+  wait -n "${WAIT_PIDS[@]}" 2>/dev/null || true
 
   # Re-check Gateway
   if ! kill -0 "${HERMES_PID}" 2>/dev/null; then
@@ -438,10 +473,12 @@ while true; do
   fi
 
   # Re-check Dashboard
-  if ! kill -0 "${DASHBOARD_PID}" 2>/dev/null; then
-    err "Hermes Web Dashboard exited during backup wait. Performing final backup."
-    backup_state
-    exit 1
+  if [[ "${DISABLE_DASHBOARD:-}" != "true" ]]; then
+    if ! kill -0 "${DASHBOARD_PID}" 2>/dev/null; then
+      err "Hermes Web Dashboard exited during backup wait. Performing final backup."
+      backup_state
+      exit 1
+    fi
   fi
 
   # Re-check Caddy

@@ -191,6 +191,7 @@ Add the following in the **Environment** tab:
 | `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` | `admin` | Username to access your admin dashboard at `/sessions` |
 | `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` | `<your-password>` | Password to access the admin dashboard |
 | `BACKUP_INTERVAL_MINS` | `5` | Minutes between state.db uploads |
+| `DISABLE_DASHBOARD` | `false` | Set to `true` to disable the Web UI dashboard and save ~150MB of RAM for the Render free tier |
 | `OPENROUTER_API_KEY` | `sk-or-...` | Get yours at [openrouter.ai/keys](https://openrouter.ai/keys) |
 | `GROQ_API_KEY` | *(optional)* | For Groq's high-speed free tier — [console.groq.com/keys](https://console.groq.com/keys) |
 | `GEMINI_API_KEY` | *(optional)* | Google Gemini API key — [aistudio.google.com](https://aistudio.google.com) |
@@ -262,6 +263,7 @@ UptimeRobot's free plan pings every 5 minutes — enough to keep the service war
 | `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` | No | *(auto)* | Password for dashboard Basic Auth (generates securely on first boot if omitted) |
 | `HERMES_DASHBOARD_BASIC_AUTH_SECRET` | No | *(auto)* | Signing secret for session tokens (prevents session expiration on container restarts) |
 | `BACKUP_INTERVAL_MINS` | No | `5` | Minutes between state.db uploads |
+| `DISABLE_DASHBOARD` | No | `false` | Set to `true` to disable the Web UI dashboard and save ~150MB of RAM for the Render free tier |
 | `HERMES_DATA_DIR` | No | `/opt/data` | Path where Hermes stores its state |
 | `OPENROUTER_API_KEY` | Yes | — | OpenRouter API key — [openrouter.ai/keys](https://openrouter.ai/keys) |
 | `GROQ_API_KEY` | No | — | Groq API key (optional) — [console.groq.com/keys](https://console.groq.com/keys) |
