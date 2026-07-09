@@ -358,7 +358,7 @@ cat <<EOF > /tmp/Caddyfile
 
     # Authenticate dashboard static routes
     basic_auth @dashboard {
-        {$HERMES_DASHBOARD_BASIC_AUTH_USERNAME} {$HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH}
+        "${HERMES_DASHBOARD_BASIC_AUTH_USERNAME}" "${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH}"
     }
 
     # Route all other traffic to the web dashboard (includes /api/*)
