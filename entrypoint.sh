@@ -261,8 +261,13 @@ chmod 777 "${CONFIG_FILE_PATH}" || true
 # STEP 2 — Configure and Start Gateway, Dashboard, and Caddy Proxy
 # ===========================================================================
 
-# Configure Dashboard Basic Auth environment variables (read by Hermes dashboard)
+# Configure Dashboard Basic Auth environment variables
 export HERMES_DASHBOARD_BASIC_AUTH_USERNAME="${HERMES_DASHBOARD_BASIC_AUTH_USERNAME:-admin}"
+if [[ -z "${HERMES_DASHBOARD_BASIC_AUTH_SECRET:-}" ]]; then
+  export HERMES_DASHBOARD_BASIC_AUTH_SECRET=$(openssl rand -hex 16)
+fi
+
+# Generate the bcrypt hash of the password for Caddy basic_auth
 if [[ -z "${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD:-}" ]]; then
   export HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=$(openssl rand -hex 8)
   log "------------------------------------------------------------"
@@ -270,12 +275,9 @@ if [[ -z "${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD:-}" ]]; then
   log " Username: ${HERMES_DASHBOARD_BASIC_AUTH_USERNAME}"
   log " Please save these credentials to access your dashboard!"
   log "------------------------------------------------------------"
-else
-  log "Dashboard authentication enabled with configured credentials."
 fi
-if [[ -z "${HERMES_DASHBOARD_BASIC_AUTH_SECRET:-}" ]]; then
-  export HERMES_DASHBOARD_BASIC_AUTH_SECRET=$(openssl rand -hex 16)
-fi
+# Generate bcrypt hash (Caddy requires hashed passwords for basic_auth)
+export HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH=$(caddy hash-password --plaintext "${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}")
 
 # Force Gateway API to bind to localhost internally so it is protected by Caddy
 export API_SERVER_HOST="127.0.0.1"
@@ -325,12 +327,22 @@ cat <<EOF > /tmp/Caddyfile
     # Static health check response to keep Render happy even if Python is busy
     respond /health "OK" 200
 
-    # Route API requests to the gateway
+    # Route API requests to the gateway (no auth)
     reverse_proxy /v1/* 127.0.0.1:8642 {
         header_up Host {upstream_hostport}
     }
 
-    # Route all other traffic to the web dashboard
+    # Match everything except API, health check, and WebSocket paths for dashboard auth
+    @dashboard {
+        not path /v1/* /health /api/*
+    }
+
+    # Authenticate dashboard static routes
+    basic_auth @dashboard {
+        {$HERMES_DASHBOARD_BASIC_AUTH_USERNAME} {$HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH}
+    }
+
+    # Route all other traffic to the web dashboard (includes /api/*)
     reverse_proxy /* 127.0.0.1:9119 {
         header_up Host {upstream_hostport}
     }
