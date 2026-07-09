@@ -185,18 +185,19 @@ Add the following in the **Environment** tab:
 | Variable | Value | Notes |
 |---|---|---|
 | `SUPABASE_URL` | `https://xxxx.supabase.co` | From Supabase project settings |
-| `SUPABASE_SERVICE_KEY` | `eyJ...` | service_role key — keep secret |
+| `SUPABASE_SERVICE_KEY` | `eyJ...` | `service_role` key — keep secret |
 | `SUPABASE_BUCKET` | `hermes-state` | Must match bucket name exactly (case-sensitive) |
-| `API_SERVER_ENABLED` | `true` | Enable the OpenAI-compatible API server |
-| `API_SERVER_HOST` | `0.0.0.0` | Bind to all interfaces (required for Render routing) |
-| `API_SERVER_PORT` | `8642` | Must match the port you set below |
 | `API_SERVER_KEY` | `<random 32+ char string>` | Generate: `openssl rand -hex 32` |
+| `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` | `admin` | Username to access your admin dashboard at `/sessions` |
+| `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` | `<your-password>` | Password to access the admin dashboard |
 | `BACKUP_INTERVAL_MINS` | `5` | Minutes between state.db uploads |
 | `OPENROUTER_API_KEY` | `sk-or-...` | Get yours at [openrouter.ai/keys](https://openrouter.ai/keys) |
 | `GROQ_API_KEY` | *(optional)* | For Groq's high-speed free tier — [console.groq.com/keys](https://console.groq.com/keys) |
-| `GEMINI_API_KEY` | *(optional)* | Google Gemini API key (generous 1M TPM free tier) — [aistudio.google.com](https://aistudio.google.com) |
+| `GEMINI_API_KEY` | *(optional)* | Google Gemini API key — [aistudio.google.com](https://aistudio.google.com) |
 | `TELEGRAM_BOT_TOKEN` | *(optional)* | Only if using Telegram |
 | `DISCORD_BOT_TOKEN` | *(optional)* | Only if using Discord |
+
+> **Note:** API binding parameters (`API_SERVER_ENABLED`, `API_SERVER_HOST`, and `API_SERVER_PORT`) are managed automatically inside the entrypoint script. Do not configure them manually in Render.
 
 ### 4.3 Port and Health Check
 
@@ -255,10 +256,10 @@ UptimeRobot's free plan pings every 5 minutes — enough to keep the service war
 | `SUPABASE_URL` | Yes | — | Supabase project URL |
 | `SUPABASE_SERVICE_KEY` | Yes | — | Supabase service_role secret key |
 | `SUPABASE_BUCKET` | Yes | `hermes-state` | Storage bucket name |
-| `API_SERVER_ENABLED` | Yes | `true` | Enable Hermes API server |
-| `API_SERVER_HOST` | Yes | `0.0.0.0` | Bind address (must be 0.0.0.0 on Render) |
-| `API_SERVER_PORT` | Yes | `8642` | API server port |
 | `API_SERVER_KEY` | Yes | — | Bearer token for API authentication |
+| `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` | No | `admin` | Username for dashboard Basic Auth |
+| `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` | No | *(auto)* | Password for dashboard Basic Auth (generates securely on first boot if omitted) |
+| `HERMES_DASHBOARD_BASIC_AUTH_SECRET` | No | *(auto)* | Signing secret for session tokens (prevents session expiration on container restarts) |
 | `BACKUP_INTERVAL_MINS` | No | `5` | Minutes between state.db uploads |
 | `HERMES_DATA_DIR` | No | `/opt/data` | Path where Hermes stores its state |
 | `OPENROUTER_API_KEY` | Yes | — | OpenRouter API key — [openrouter.ai/keys](https://openrouter.ai/keys) |

@@ -17,6 +17,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Download and install Caddy web server/reverse proxy binary
+RUN curl -fsSL -o /usr/bin/caddy "https://caddyserver.com/api/download?os=linux&arch=amd64" \
+    && chmod +x /usr/bin/caddy
+
 # Copy the entrypoint wrapper into the image root.
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

@@ -154,10 +154,25 @@ backup_state() {
 #   Called on SIGTERM or SIGINT — perform a final backup then exit
 # ---------------------------------------------------------------------------
 HERMES_PID=""
+DASHBOARD_PID=""
+CADDY_PID=""
 shutdown_handler() {
   log "Received shutdown signal. Performing final state backup..."
   backup_state
 
+  # Terminate Caddy
+  if [[ -n "${CADDY_PID}" ]] && kill -0 "${CADDY_PID}" 2>/dev/null; then
+    log "Stopping Caddy proxy (PID ${CADDY_PID})..."
+    kill -SIGTERM "${CADDY_PID}" 2>/dev/null || true
+  fi
+
+  # Terminate Dashboard
+  if [[ -n "${DASHBOARD_PID}" ]] && kill -0 "${DASHBOARD_PID}" 2>/dev/null; then
+    log "Stopping Hermes Web Dashboard (PID ${DASHBOARD_PID})..."
+    kill -SIGTERM "${DASHBOARD_PID}" 2>/dev/null || true
+  fi
+
+  # Terminate Gateway
   if [[ -n "${HERMES_PID}" ]] && kill -0 "${HERMES_PID}" 2>/dev/null; then
     log "Sending SIGTERM to Hermes gateway (PID ${HERMES_PID})..."
     kill -SIGTERM "${HERMES_PID}" 2>/dev/null || true
@@ -243,8 +258,30 @@ if changed:
 chmod 777 "${CONFIG_FILE_PATH}" || true
 
 # ===========================================================================
-# STEP 2 — Start Hermes Gateway in the background
+# STEP 2 — Configure and Start Gateway, Dashboard, and Caddy Proxy
 # ===========================================================================
+
+# Configure Dashboard Basic Auth environment variables (read by Hermes dashboard)
+export HERMES_DASHBOARD_BASIC_AUTH_USERNAME="${HERMES_DASHBOARD_BASIC_AUTH_USERNAME:-admin}"
+if [[ -z "${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD:-}" ]]; then
+  export HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=$(openssl rand -hex 8)
+  log "------------------------------------------------------------"
+  log " DASHBOARD PASSWORD GENERATED: ${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}"
+  log " Username: ${HERMES_DASHBOARD_BASIC_AUTH_USERNAME}"
+  log " Please save these credentials to access your dashboard!"
+  log "------------------------------------------------------------"
+else
+  log "Dashboard authentication enabled with configured credentials."
+fi
+if [[ -z "${HERMES_DASHBOARD_BASIC_AUTH_SECRET:-}" ]]; then
+  export HERMES_DASHBOARD_BASIC_AUTH_SECRET=$(openssl rand -hex 16)
+fi
+
+# Force Gateway API to bind to localhost internally so it is protected by Caddy
+export API_SERVER_HOST="127.0.0.1"
+export API_SERVER_PORT="8642"
+export API_SERVER_ENABLED="true"
+
 log "--- Starting Hermes gateway ---"
 
 # Log which key env vars are present — values are NEVER printed, only SET/MISSING
@@ -265,26 +302,58 @@ if [[ -f "${ENV_FILE_PATH}" ]]; then
   set -a; source "${ENV_FILE_PATH}"; set +a
 fi
 
-# Start the gateway — explicitly forward stdout AND stderr to PID 1's file
-# descriptors so Render captures every log line including crash tracebacks.
+# Start the gateway — forward stdout/stderr to PID 1
 hermes gateway run > /proc/1/fd/1 2>&1 &
 HERMES_PID=$!
 log "Hermes gateway started (PID ${HERMES_PID})"
 
-# Early crash detection: wait 5 s then check if Hermes is still running.
-# If it already died, capture its exit code and abort with a clear message.
+# Start the web dashboard (binds internally to localhost:9119)
+log "--- Starting Hermes Web Dashboard ---"
+hermes dashboard --port 9119 --host 127.0.0.1 --no-open > /proc/1/fd/1 2>&1 &
+DASHBOARD_PID=$!
+log "Hermes Web Dashboard started (PID ${DASHBOARD_PID})"
+
+# Start Caddy reverse proxy to expose both services under a single port
+PUBLIC_PORT="${PORT:-8642}"
+log "--- Starting Caddy Reverse Proxy on port ${PUBLIC_PORT} ---"
+cat <<EOF > /tmp/Caddyfile
+:${PUBLIC_PORT} {
+    # Route API and health requests to the gateway
+    reverse_proxy /v1/* 127.0.0.1:8642
+    reverse_proxy /health 127.0.0.1:8642
+
+    # Route all other traffic to the web dashboard
+    reverse_proxy /* 127.0.0.1:9119
+}
+EOF
+
+caddy run --config /tmp/Caddyfile > /proc/1/fd/1 2>&1 &
+CADDY_PID=$!
+log "Caddy proxy started (PID ${CADDY_PID})"
+
+# Early crash detection: wait 5 s then check if all three processes are running
 sleep 5
 if ! kill -0 "${HERMES_PID}" 2>/dev/null; then
   wait "${HERMES_PID}" 2>/dev/null; EXIT_CODE=$?
   err "Hermes gateway crashed within 5 seconds (exit code ${EXIT_CODE})."
-  err "Check the lines above for the Hermes error traceback."
-  err "Common causes: OPENROUTER_API_KEY not set, or hermes setup not completed."
   backup_state
   exit 1
 fi
-log "Hermes gateway is healthy after 5s — continuing."
+if ! kill -0 "${DASHBOARD_PID}" 2>/dev/null; then
+  wait "${DASHBOARD_PID}" 2>/dev/null; EXIT_CODE=$?
+  err "Hermes Web Dashboard crashed within 5 seconds (exit code ${EXIT_CODE})."
+  backup_state
+  exit 1
+fi
+if ! kill -0 "${CADDY_PID}" 2>/dev/null; then
+  wait "${CADDY_PID}" 2>/dev/null; EXIT_CODE=$?
+  err "Caddy proxy crashed within 5 seconds (exit code ${EXIT_CODE})."
+  backup_state
+  exit 1
+fi
+log "All services (Gateway, Dashboard, Caddy) are healthy — continuing."
 
-# Additional 5-second buffer before the backup loop starts
+# Additional buffer before the backup loop starts
 sleep 5
 
 # ===========================================================================
@@ -293,10 +362,23 @@ sleep 5
 log "--- Starting periodic backup loop (every ${BACKUP_INTERVAL_MINS} min) ---"
 
 while true; do
-  # Check if Hermes is still alive
+  # Check if Hermes Gateway is still alive
   if ! kill -0 "${HERMES_PID}" 2>/dev/null; then
     err "Hermes gateway process (PID ${HERMES_PID}) has exited unexpectedly!"
-    # Perform one final backup before the container exits
+    backup_state
+    exit 1
+  fi
+
+  # Check if Hermes Web Dashboard is still alive
+  if ! kill -0 "${DASHBOARD_PID}" 2>/dev/null; then
+    err "Hermes Web Dashboard process (PID ${DASHBOARD_PID}) has exited unexpectedly!"
+    backup_state
+    exit 1
+  fi
+
+  # Check if Caddy Proxy is still alive
+  if ! kill -0 "${CADDY_PID}" 2>/dev/null; then
+    err "Caddy proxy process (PID ${CADDY_PID}) has exited unexpectedly!"
     backup_state
     exit 1
   fi
@@ -305,13 +387,25 @@ while true; do
   SLEEP_PID=$!
 
   # wait -n returns when any background job completes (bash 4.3+)
-  # This allows the trap to fire immediately on SIGTERM without
-  # waiting for the full sleep interval to expire.
-  wait -n "${SLEEP_PID}" "${HERMES_PID}" 2>/dev/null || true
+  wait -n "${SLEEP_PID}" "${HERMES_PID}" "${DASHBOARD_PID}" "${CADDY_PID}" 2>/dev/null || true
 
-  # Re-check that both the sleep AND Hermes are still running
+  # Re-check Gateway
   if ! kill -0 "${HERMES_PID}" 2>/dev/null; then
     err "Hermes gateway exited during backup wait. Performing final backup."
+    backup_state
+    exit 1
+  fi
+
+  # Re-check Dashboard
+  if ! kill -0 "${DASHBOARD_PID}" 2>/dev/null; then
+    err "Hermes Web Dashboard exited during backup wait. Performing final backup."
+    backup_state
+    exit 1
+  fi
+
+  # Re-check Caddy
+  if ! kill -0 "${CADDY_PID}" 2>/dev/null; then
+    err "Caddy proxy exited during backup wait. Performing final backup."
     backup_state
     exit 1
   fi
