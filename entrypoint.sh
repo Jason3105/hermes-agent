@@ -227,9 +227,10 @@ model:
 EOF
 fi
 
-# Remove any legacy custom groq entry from config.yaml — Hermes has a native
-# built-in Groq provider that activates automatically when GROQ_API_KEY is set.
-python3 -c '
+# Clean up duplicate custom groq provider and ensure github provider exists in config.yaml
+if [[ -f "${CONFIG_FILE_PATH}" ]]; then
+  log "Updating custom provider registrations in config.yaml..."
+  python3 -c '
 import yaml, sys
 path = sys.argv[1]
 try:
@@ -238,21 +239,38 @@ try:
 except Exception:
     cfg = {}
 changed = False
-if "custom_providers" in cfg:
-    before = len(cfg["custom_providers"])
-    cfg["custom_providers"] = [p for p in cfg["custom_providers"] if p.get("name") != "groq"]
-    if len(cfg["custom_providers"]) < before:
-        changed = True
-    if not cfg["custom_providers"]:
-        cfg.pop("custom_providers")
+if "custom_providers" not in cfg:
+    cfg["custom_providers"] = []
+    changed = True
+
+# Filter out groq (since Hermes natively supports Groq now)
+before = len(cfg["custom_providers"])
+cfg["custom_providers"] = [p for p in cfg["custom_providers"] if p.get("name") != "groq"]
+if len(cfg["custom_providers"]) < before:
+    changed = True
+
+# Register github models endpoint if missing
+if not any(p.get("name") == "github" for p in cfg["custom_providers"]):
+    cfg["custom_providers"].append({
+        "name": "github",
+        "base_url": "https://models.inference.ai.azure.com",
+        "key_env": "GITHUB_TOKEN"
+    })
+    changed = True
+
+if not cfg["custom_providers"]:
+    cfg.pop("custom_providers")
+
 # Remove stale max_tokens override so Hermes uses the model default
 if "model" in cfg and "max_tokens" in cfg["model"]:
     cfg["model"].pop("max_tokens")
     changed = True
+
 if changed:
     with open(path, "w") as f:
         yaml.safe_dump(cfg, f)
 ' "${CONFIG_FILE_PATH}" || true
+fi
 
 # Ensure correct permissions on config
 chmod 777 "${CONFIG_FILE_PATH}" || true
@@ -291,6 +309,7 @@ _check_env() { local name="$1" val="$2"; if [[ -n "${val}" ]]; then log "Env che
 _check_env "OPENROUTER_API_KEY " "${OPENROUTER_API_KEY:-}"
 _check_env "GROQ_API_KEY       " "${GROQ_API_KEY:-}"
 _check_env "GEMINI_API_KEY     " "${GEMINI_API_KEY:-${GOOGLE_API_KEY:-}}"
+_check_env "GITHUB_TOKEN       " "${GITHUB_TOKEN:-}"
 _check_env "API_SERVER_KEY     " "${API_SERVER_KEY:-}"
 _check_env "TELEGRAM_BOT_TOKEN " "${TELEGRAM_BOT_TOKEN:-}"
 log "Env check — API_SERVER_ENABLED  : ${API_SERVER_ENABLED:-not set}"
