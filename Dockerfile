@@ -14,7 +14,7 @@ FROM nousresearch/hermes-agent:latest
 # in the same RUN layer to keep the image layer size small.
 USER root
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl python3-pip python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 # Download and install Caddy web server/reverse proxy binary

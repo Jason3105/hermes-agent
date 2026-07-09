@@ -318,9 +318,11 @@ PUBLIC_PORT="${PORT:-8642}"
 log "--- Starting Caddy Reverse Proxy on port ${PUBLIC_PORT} ---"
 cat <<EOF > /tmp/Caddyfile
 :${PUBLIC_PORT} {
-    # Route API and health requests to the gateway
+    # Static health check response to keep Render happy even if Python is busy
+    respond /health "OK" 200
+
+    # Route API requests to the gateway
     reverse_proxy /v1/* 127.0.0.1:8642
-    reverse_proxy /health 127.0.0.1:8642
 
     # Route all other traffic to the web dashboard
     reverse_proxy /* 127.0.0.1:9119
