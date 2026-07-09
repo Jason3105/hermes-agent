@@ -25,6 +25,9 @@ RUN curl -fsSL -o /usr/bin/caddy "https://caddyserver.com/api/download?os=linux&
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# Pre-create data directory and ensure it has open permissions for non-root users
+RUN mkdir -p /opt/data && chmod -R 777 /opt/data
+
 # ---------------------------------------------------------------------------
 # Environment variable defaults (all overridable via Render env vars)
 # ---------------------------------------------------------------------------
