@@ -1,13 +1,3 @@
----
-title: Hermes Agent Custom
-emoji: ⚕
-colorFrom: purple
-colorTo: indigo
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # 🪶 Hermes Agent — Self-Hosting on Render Free Tier
 
 > **Persistent state via Supabase Storage, kept warm with UptimeRobot.**

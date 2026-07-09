@@ -299,9 +299,15 @@ if [[ "${DISABLE_DASHBOARD:-}" != "true" ]]; then
   export HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH=$(caddy hash-password --plaintext "${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}")
 fi
 
-# Force Gateway API to bind to localhost internally so it is protected by Caddy
-export API_SERVER_HOST="127.0.0.1"
-export API_SERVER_PORT="8642"
+# When dashboard is disabled, Hermes binds directly to the public port (no Caddy needed)
+# When dashboard is enabled, Caddy is the public face and Hermes stays on localhost
+if [[ "${DISABLE_DASHBOARD:-}" == "true" ]]; then
+  export API_SERVER_HOST="0.0.0.0"
+  export API_SERVER_PORT="${PORT:-8642}"
+else
+  export API_SERVER_HOST="127.0.0.1"
+  export API_SERVER_PORT="8642"
+fi
 export API_SERVER_ENABLED="true"
 
 log "--- Starting Hermes gateway ---"
@@ -341,26 +347,11 @@ else
   log "Hermes Web Dashboard is disabled via DISABLE_DASHBOARD=true"
 fi
 
-# Start Caddy reverse proxy to expose both services under a single port
-PUBLIC_PORT="${PORT:-8642}"
-log "--- Starting Caddy Reverse Proxy on port ${PUBLIC_PORT} ---"
-if [[ "${DISABLE_DASHBOARD:-}" == "true" ]]; then
-cat <<EOF > /tmp/Caddyfile
-{
-    admin off
-}
-
-:${PUBLIC_PORT} {
-    # Static health check response to keep Render happy even if Python is busy
-    respond /health "OK" 200
-
-    # Route all traffic directly to the API Gateway
-    reverse_proxy /* 127.0.0.1:8642 {
-        header_up Host {upstream_hostport}
-    }
-}
-EOF
-else
+# Start Caddy reverse proxy (only needed when dashboard is enabled)
+CADDY_PID=""
+if [[ "${DISABLE_DASHBOARD:-}" != "true" ]]; then
+  PUBLIC_PORT="${PORT:-8642}"
+  log "--- Starting Caddy Reverse Proxy on port ${PUBLIC_PORT} ---"
 cat <<EOF > /tmp/Caddyfile
 {
     admin off
@@ -391,11 +382,12 @@ cat <<EOF > /tmp/Caddyfile
     }
 }
 EOF
+  caddy run --config /tmp/Caddyfile > /proc/1/fd/1 2>&1 &
+  CADDY_PID=$!
+  log "Caddy proxy started (PID ${CADDY_PID})"
+else
+  log "Caddy proxy skipped — Hermes Gateway is bound directly to 0.0.0.0:${PORT:-8642}"
 fi
-
-caddy run --config /tmp/Caddyfile > /proc/1/fd/1 2>&1 &
-CADDY_PID=$!
-log "Caddy proxy started (PID ${CADDY_PID})"
 
 # Early crash detection: wait 5 s then check if all running processes are healthy
 sleep 5
@@ -413,11 +405,13 @@ if [[ "${DISABLE_DASHBOARD:-}" != "true" ]]; then
     exit 1
   fi
 fi
-if ! kill -0 "${CADDY_PID}" 2>/dev/null; then
-  wait "${CADDY_PID}" 2>/dev/null; EXIT_CODE=$?
-  err "Caddy proxy crashed within 5 seconds (exit code ${EXIT_CODE})."
-  backup_state
-  exit 1
+if [[ "${DISABLE_DASHBOARD:-}" != "true" ]]; then
+  if ! kill -0 "${CADDY_PID}" 2>/dev/null; then
+    wait "${CADDY_PID}" 2>/dev/null; EXIT_CODE=$?
+    err "Caddy proxy crashed within 5 seconds (exit code ${EXIT_CODE})."
+    backup_state
+    exit 1
+  fi
 fi
 log "All services are healthy — continuing."
 
@@ -447,19 +441,21 @@ while true; do
   fi
 
   # Check if Caddy Proxy is still alive
-  if ! kill -0 "${CADDY_PID}" 2>/dev/null; then
-    err "Caddy proxy process (PID ${CADDY_PID}) has exited unexpectedly!"
-    backup_state
-    exit 1
+  if [[ "${DISABLE_DASHBOARD:-}" != "true" ]]; then
+    if ! kill -0 "${CADDY_PID}" 2>/dev/null; then
+      err "Caddy proxy process (PID ${CADDY_PID}) has exited unexpectedly!"
+      backup_state
+      exit 1
+    fi
   fi
 
   sleep "${BACKUP_INTERVAL_SECS}" &
   SLEEP_PID=$!
 
   # Build list of PIDs to wait for
-  WAIT_PIDS=("${SLEEP_PID}" "${HERMES_PID}" "${CADDY_PID}")
+  WAIT_PIDS=("${SLEEP_PID}" "${HERMES_PID}")
   if [[ "${DISABLE_DASHBOARD:-}" != "true" ]]; then
-    WAIT_PIDS+=("${DASHBOARD_PID}")
+    WAIT_PIDS+=("${DASHBOARD_PID}" "${CADDY_PID}")
   fi
 
   # wait -n returns when any background job completes (bash 4.3+)
@@ -482,10 +478,12 @@ while true; do
   fi
 
   # Re-check Caddy
-  if ! kill -0 "${CADDY_PID}" 2>/dev/null; then
-    err "Caddy proxy exited during backup wait. Performing final backup."
-    backup_state
-    exit 1
+  if [[ "${DISABLE_DASHBOARD:-}" != "true" ]]; then
+    if ! kill -0 "${CADDY_PID}" 2>/dev/null; then
+      err "Caddy proxy exited during backup wait. Performing final backup."
+      backup_state
+      exit 1
+    fi
   fi
 
   # If sleep finished naturally, run the periodic backup
