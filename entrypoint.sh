@@ -317,15 +317,23 @@ log "Hermes Web Dashboard started (PID ${DASHBOARD_PID})"
 PUBLIC_PORT="${PORT:-8642}"
 log "--- Starting Caddy Reverse Proxy on port ${PUBLIC_PORT} ---"
 cat <<EOF > /tmp/Caddyfile
+{
+    admin off
+}
+
 :${PUBLIC_PORT} {
     # Static health check response to keep Render happy even if Python is busy
     respond /health "OK" 200
 
     # Route API requests to the gateway
-    reverse_proxy /v1/* 127.0.0.1:8642
+    reverse_proxy /v1/* 127.0.0.1:8642 {
+        header_up Host {upstream_hostport}
+    }
 
     # Route all other traffic to the web dashboard
-    reverse_proxy /* 127.0.0.1:9119
+    reverse_proxy /* 127.0.0.1:9119 {
+        header_up Host {upstream_hostport}
+    }
 }
 EOF
 
