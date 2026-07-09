@@ -146,6 +146,13 @@ backup_state() {
   if [[ -f "${ENV_FILE_PATH}" ]]; then
     upload_to_supabase "${ENV_FILE_PATH}" ".env" || true
   fi
+
+  # Upload skills directory if it exists
+  if [[ -d "${HERMES_DATA_DIR}/skills" ]]; then
+    tar -czf "${HERMES_DATA_DIR}/.skills-backup.tar.gz" -C "${HERMES_DATA_DIR}" skills
+    upload_to_supabase "${HERMES_DATA_DIR}/.skills-backup.tar.gz" "skills.tar.gz" || true
+    rm -f "${HERMES_DATA_DIR}/.skills-backup.tar.gz"
+  fi
   log "=== Backup complete ==="
 }
 
@@ -212,6 +219,20 @@ log "--- Restoring state from Supabase Storage ---"
 download_from_supabase "state.db"    "${STATE_DB_PATH}"    || true
 download_from_supabase "config.yaml" "${CONFIG_FILE_PATH}" || true
 download_from_supabase ".env"        "${ENV_FILE_PATH}"    || true
+
+# --- Restore skills from Supabase (idempotent) ---
+SKILLS_RESTORE_TMP="${HERMES_DATA_DIR}/.skills-restored.tar.gz"
+if download_from_supabase "skills.tar.gz" "${SKILLS_RESTORE_TMP}"; then
+  mkdir -p "${HERMES_DATA_DIR}/skills" "${HERMES_DATA_DIR}/.cache"
+  if tar -tzf "${SKILLS_RESTORE_TMP}" 2>/dev/null | grep -q "SKILL.md"; then
+    tar -xzf "${SKILLS_RESTORE_TMP}" -C "${HERMES_DATA_DIR}" 2>/dev/null
+    cp "${SKILLS_RESTORE_TMP}" "${HERMES_DATA_DIR}/.cache/skills.tar.gz"
+    log "Skills restored from Supabase."
+  else
+    warn "skills.tar.gz from Supabase contained no SKILL.md — skipping."
+  fi
+  rm -f "${SKILLS_RESTORE_TMP}"
+fi
 
 # Ensure files are fully readable and writable by whatever user Hermes drops to
 chmod -R 777 "${HERMES_DATA_DIR}" || true
