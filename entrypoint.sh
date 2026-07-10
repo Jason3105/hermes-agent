@@ -240,6 +240,8 @@ if download_from_supabase "skills.tar.gz" "${SKILLS_RESTORE_TMP}"; then
     warn "skills.tar.gz from Supabase contained no SKILL.md — skipping."
   fi
   rm -f "${SKILLS_RESTORE_TMP}"
+fi
+
 # --- Restore Google OAuth tokens from Supabase ---
 if download_from_supabase "google_token.json" "${HERMES_DATA_DIR}/google_token.json"; then
   log "Google token restored from Supabase."
