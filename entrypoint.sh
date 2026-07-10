@@ -147,6 +147,14 @@ backup_state() {
     upload_to_supabase "${ENV_FILE_PATH}" ".env" || true
   fi
 
+  # Upload Google token files if they exist
+  if [[ -f "${HERMES_DATA_DIR}/google_token.json" ]]; then
+    upload_to_supabase "${HERMES_DATA_DIR}/google_token.json" "google_token.json" || true
+  fi
+  if [[ -f "${HERMES_DATA_DIR}/google_client_secret.json" ]]; then
+    upload_to_supabase "${HERMES_DATA_DIR}/google_client_secret.json" "google_client_secret.json" || true
+  fi
+
   # Upload skills directory if it exists
   if [[ -d "${HERMES_DATA_DIR}/skills" ]]; then
     tar -czf "${HERMES_DATA_DIR}/.skills-backup.tar.gz" -C "${HERMES_DATA_DIR}" skills
@@ -232,6 +240,12 @@ if download_from_supabase "skills.tar.gz" "${SKILLS_RESTORE_TMP}"; then
     warn "skills.tar.gz from Supabase contained no SKILL.md — skipping."
   fi
   rm -f "${SKILLS_RESTORE_TMP}"
+# --- Restore Google OAuth tokens from Supabase ---
+if download_from_supabase "google_token.json" "${HERMES_DATA_DIR}/google_token.json"; then
+  log "Google token restored from Supabase."
+fi
+if download_from_supabase "google_client_secret.json" "${HERMES_DATA_DIR}/google_client_secret.json"; then
+  log "Google client secret restored from Supabase."
 fi
 
 # Ensure files are fully readable and writable by whatever user Hermes drops to
@@ -286,6 +300,39 @@ if not cfg["custom_providers"]:
 if "model" in cfg and "max_tokens" in cfg["model"]:
     cfg["model"].pop("max_tokens")
     changed = True
+
+# Configure auxiliary vision provider to prevent 'No LLM provider configured for task=vision provider=auto' errors
+if "auxiliary" not in cfg:
+    cfg["auxiliary"] = {}
+    changed = True
+
+vision_cfg = cfg["auxiliary"].get("vision", {})
+if not vision_cfg or vision_cfg.get("provider") == "auto" or not vision_cfg.get("provider"):
+    model_provider = cfg.get("model", {}).get("provider", "openrouter")
+    if model_provider == "openrouter":
+        cfg["auxiliary"]["vision"] = {
+            "provider": "openrouter",
+            "model": "google/gemini-2.5-flash:free"
+        }
+        changed = True
+    elif model_provider in ("gemini", "google"):
+        cfg["auxiliary"]["vision"] = {
+            "provider": "gemini",
+            "model": "gemini-2.5-flash"
+        }
+        changed = True
+    elif model_provider == "github" or model_provider == "custom:github":
+        cfg["auxiliary"]["vision"] = {
+            "provider": "github",
+            "model": "gpt-4o"
+        }
+        changed = True
+    elif model_provider:
+        cfg["auxiliary"]["vision"] = {
+            "provider": model_provider,
+            "model": "auto"
+        }
+        changed = True
 
 if changed:
     with open(path, "w") as f:
