@@ -198,6 +198,9 @@ Add the following in the **Environment** tab:
 | `GITHUB_TOKEN` | *(optional)* | GitHub Personal Access Token (for GitHub Models API) — [github.com/settings/tokens](https://github.com/settings/tokens) |
 | `TELEGRAM_BOT_TOKEN` | *(optional)* | Only if using Telegram |
 | `DISCORD_BOT_TOKEN` | *(optional)* | Only if using Discord |
+| `GOOGLE_CLIENT_ID` | *(optional)* | Google Cloud Client ID for Gmail API email sending |
+| `GOOGLE_CLIENT_SECRET` | *(optional)* | Google Cloud Client Secret |
+| `GOOGLE_REFRESH_TOKEN` | *(optional)* | Google OAuth Refresh Token generated via local script |
 
 > **Note:** API binding parameters (`API_SERVER_ENABLED`, `API_SERVER_HOST`, and `API_SERVER_PORT`) are managed automatically inside the entrypoint script. Do not configure them manually in Render.
 
@@ -271,8 +274,42 @@ UptimeRobot's free plan pings every 5 minutes — enough to keep the service war
 | `GITHUB_TOKEN` | No | — | GitHub Personal Access Token (for GitHub Models API) — [github.com/settings/tokens](https://github.com/settings/tokens) |
 | `TELEGRAM_BOT_TOKEN` | No | — | Required only if using Telegram |
 | `DISCORD_BOT_TOKEN` | No | — | Required only if using Discord |
+| `GOOGLE_CLIENT_ID` | No | — | Google Cloud Client ID for Gmail API email sending |
+| `GOOGLE_CLIENT_SECRET` | No | — | Google Cloud Client Secret for Gmail API |
+| `GOOGLE_REFRESH_TOKEN` | No | — | Google OAuth Refresh Token (generated via get_gmail_tokens.py) |
 
 > **Model selection is not an env var.** Use `hermes model` or the Hermes dashboard to choose your model after the agent starts. The choice is written to `config.yaml` inside `/opt/data/`, which `entrypoint.sh` backs up to Supabase Storage and restores on every restart — so your selection persists across redeploys automatically.
+
+---
+
+## Step 6 — Gmail API Setup (Google OAuth 2.0)
+
+Since Render Free Tier strictly blocks raw outbound SMTP ports (25, 465, 587), you cannot send emails using standard SMTP credentials. Instead, you can send emails over HTTPS (port 443) using the Google Gmail REST API.
+
+### 6.1 Google Cloud Console Setup
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
+2. Create a new project.
+3. Enable the **Gmail API** under APIs & Services.
+4. Set up the **OAuth Consent Screen**:
+   * Select **External** user type.
+   * Add `https://www.googleapis.com/auth/gmail.send` to scopes.
+   * Add your own Gmail address under **Test Users** (mandatory in Testing mode).
+5. Go to **Credentials**:
+   * Click **Create Credentials** -> **OAuth client ID**.
+   * Select Application Type: **Desktop app**.
+   * Copy the **Client ID** and **Client Secret**.
+
+### 6.2 Generate Your Refresh Token
+
+Run the following helper script locally:
+```bash
+python get_gmail_tokens.py
+```
+This script will open a browser for you to log in, and then output your `GOOGLE_REFRESH_TOKEN`.
+
+### 6.3 Configure and Deploy
+Add the three generated credentials (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REFRESH_TOKEN`) to your Render environment variables. You can then send emails securely over HTTPS by importing `send_gmail` from `gmail_api_helper.py` in your python skills.
 
 ---
 
@@ -285,6 +322,8 @@ hermes-agent-render/
 ├── docker-compose.yml    ← Local testing only
 ├── .env.example          ← Template — copy to .env.local and fill in values
 ├── .gitignore            ← Keeps secrets out of Git
+├── get_gmail_tokens.py   ← Google OAuth 2.0 token generator script (local use)
+├── gmail_api_helper.py   ← Gmail API HTTPS email helper (agent use)
 └── README.md             ← This file
 ```
 

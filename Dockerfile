@@ -25,6 +25,10 @@ RUN curl -fsSL -o /usr/bin/caddy "https://caddyserver.com/api/download?os=linux&
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# Copy Gmail API HTTPS helper into the image
+COPY gmail_api_helper.py /opt/data/gmail_api_helper.py
+COPY gmail_api_helper.py /gmail_api_helper.py
+
 # Pre-create data directory and ensure it has open permissions for non-root users
 RUN mkdir -p /opt/data && chmod -R 777 /opt/data
 
