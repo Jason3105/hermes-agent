@@ -250,6 +250,24 @@ if download_from_supabase "google_client_secret.json" "${HERMES_DATA_DIR}/google
   log "Google client secret restored from Supabase."
 fi
 
+# --- Restore internship-outreach agent self-heal script (B3) ---
+# restore_agent.sh fetches bootstrap.py from Supabase and rebuilds the full
+# outreach agent workspace + SKILL.md + Gmail token on every container boot.
+if download_from_supabase "internship_outreach/restore_agent.sh" "${HERMES_DATA_DIR}/restore_agent.sh"; then
+  chmod +x "${HERMES_DATA_DIR}/restore_agent.sh"
+  bash "${HERMES_DATA_DIR}/restore_agent.sh" || true
+  log "Internship-outreach agent restored."
+fi
+
+# --- Restore outreach cron scripts (B6) ---
+# These scripts must be present at /opt/data/scripts/ for the Hermes cron jobs
+# to execute correctly after each deploy.
+mkdir -p "${HERMES_DATA_DIR}/scripts"
+download_from_supabase "internship_outreach/agent/backup_supabase.py" "${HERMES_DATA_DIR}/scripts/outreach_backup.py" || true
+if [[ -f "${HERMES_DATA_DIR}/restore_agent.sh" ]]; then
+  cp "${HERMES_DATA_DIR}/restore_agent.sh" "${HERMES_DATA_DIR}/scripts/outreach_restore.sh" || true
+fi
+
 # Ensure files are fully readable and writable by whatever user Hermes drops to
 chmod -R 777 "${HERMES_DATA_DIR}" || true
 
@@ -309,12 +327,25 @@ if "auxiliary" not in cfg:
     changed = True
 
 vision_cfg = cfg["auxiliary"].get("vision", {})
-if not vision_cfg or vision_cfg.get("provider") == "auto" or not vision_cfg.get("provider"):
+# Use Llama 3.2 Vision (free, natively supports image inputs) as the auxiliary
+# vision model. It processes images → text, then the main model handles the rest.
+# Migrate any stale/non-vision configs on every boot.
+VISION_MODEL = "meta-llama/llama-3.2-11b-vision-instruct:free"
+stale_models = {
+    "google/gemini-2.5-flash:free", "tencent/hunyuan-t1", "auto", ""
+}
+current_vision_model = vision_cfg.get("model", "") if vision_cfg else ""
+needs_vision_update = (
+    not vision_cfg
+    or vision_cfg.get("provider") in ("auto", None, "")
+    or current_vision_model in stale_models
+)
+if needs_vision_update:
     model_provider = cfg.get("model", {}).get("provider", "openrouter")
-    if model_provider == "openrouter":
+    if model_provider in ("openrouter", ""):
         cfg["auxiliary"]["vision"] = {
             "provider": "openrouter",
-            "model": "google/gemini-2.5-flash:free"
+            "model": VISION_MODEL
         }
         changed = True
     elif model_provider in ("gemini", "google"):
@@ -323,16 +354,17 @@ if not vision_cfg or vision_cfg.get("provider") == "auto" or not vision_cfg.get(
             "model": "gemini-2.5-flash"
         }
         changed = True
-    elif model_provider == "github" or model_provider == "custom:github":
+    elif model_provider in ("github", "custom:github"):
         cfg["auxiliary"]["vision"] = {
             "provider": "github",
             "model": "gpt-4o"
         }
         changed = True
     elif model_provider:
+        # For any other provider, still route vision through OpenRouter Llama free
         cfg["auxiliary"]["vision"] = {
-            "provider": model_provider,
-            "model": "auto"
+            "provider": "openrouter",
+            "model": VISION_MODEL
         }
         changed = True
 
